@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.netlify/
+.env
+.env.*
+!.env.example
+outputs/
+playwright-report/
+test-results/
+*.log
+*.zip
+*.url
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+deno.lock
