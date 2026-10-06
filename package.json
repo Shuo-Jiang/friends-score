@@ -15,7 +15,7 @@
     "deploy:preview": "netlify deploy",
     "deploy": "netlify deploy --prod",
     "preview:local": "npm run build && npm start",
-    "test:e2e": "node scripts/qa.cjs && node scripts/probe-qa.cjs"
+    "test:e2e": "node scripts/qa.cjs && node scripts/probe-qa.cjs && node scripts/scoring-qa.cjs"
   },
   "dependencies": {
     "@netlify/blobs": "11.1.0",

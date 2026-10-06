@@ -101,3 +101,48 @@ test('存储故障明确报错，不显示虚假的保存成功', async () => {
     const handler = makeHandler({ async read() { throw new Error('offline'); }, async write() { throw new Error('offline'); } });
     assert.equal((await handler(new Request('https://test.local/api/rooms/' + random(16)))).status, 503);
 });
+
+
+test('初始20可补50；累计、净得分、重复请求和撤销均按实际补分计算', async () => {
+    const f = fixture(), path = '/api/rooms/' + f.id;
+    await f.call('/api/rooms', { ...f.payload, initial: 20 });
+    await f.call(path, { ...f.command(), changes: [{ id: 'p1', delta: -20 }, { id: 'p2', delta: 20 }] });
+    const refill = { action: 'refill', playerId: 'p1', amount: 50, version: 2, requestId: random(16) };
+    const result = await f.call(path, refill);
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.room.players[0], { id: 'p1', name: '甲', initial: 20, balance: 50, refills: 1, refillTotal: 50, net: -20 });
+    assert.equal(result.room.events.at(-1).text, '甲 补分 +50');
+    assert.deepEqual((await f.call(path, refill)).room, result.room);
+    const undo = await f.call(path, { action: 'undo', version: 3, requestId: random(16) });
+    assert.equal(undo.room.players[0].balance, 0);
+    assert.equal(undo.room.players[0].refillTotal, 0);
+    assert.equal(undo.room.players[0].refills, 0);
+    assert.equal(undo.room.players[0].net, -20);
+    // Amounts smaller than the initial score are also allowed.
+    const small = await f.call(path, { ...refill, amount: 1, version: 4, requestId: random(16) });
+    assert.equal(small.room.players[0].balance, 1);
+    assert.equal(small.room.players[0].net, -20);
+});
+
+test('自定义补分拒绝非法数量、非归零、越界累计、过期和无权限操作', async () => {
+    const f = fixture(), path = '/api/rooms/' + f.id;
+    await f.call('/api/rooms', f.payload);
+    const refill = (amount: unknown, version = 2) => ({ action: 'refill', playerId: 'p1', amount, version, requestId: random(16) });
+    assert.equal((await f.call(path, refill(50, 1))).status, 400);
+    await f.call(path, f.command());
+    for (const amount of [0, -1, 1.5, 1000000001, '50', null, true]) {
+        assert.equal((await f.call(path, refill(amount))).status, 400);
+    }
+    assert.equal((await f.call(path, refill(50), '')).status, 403);
+    assert.equal((await f.call(path, refill(50, 1))).status, 409);
+    assert.equal((await f.call(path)).room.version, 2);
+    assert.equal((await f.call(path, refill(1000000000))).status, 200);
+    await f.call(path, { action: 'score', version: 3, requestId: random(16), changes: [{ id: 'p1', delta: -2000 }, { id: 'p2', delta: 2000 }] });
+    // Move enough points to a third player so p1 can reach zero without exceeding a balance limit.
+    await f.call(path, { action: 'add', version: 4, requestId: random(16), name: '丙' });
+    await f.call(path, { action: 'score', version: 5, requestId: random(16), changes: [{ id: 'p1', delta: -999998000 }, { id: 'p3', delta: 999998000 }] });
+    const before = (await f.call(path)).room;
+    assert.equal(before.players[0].balance, 0);
+    assert.equal((await f.call(path, refill(1, 6))).status, 400);
+    assert.deepEqual((await f.call(path)).room, before);
+});

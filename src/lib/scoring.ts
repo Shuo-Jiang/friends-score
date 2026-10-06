@@ -46,6 +46,7 @@ export interface Command {
         delta: number;
     }[];
     playerId?: string;
+    amount?: number;
     name?: string;
 }
 export function create(id: string, input: {
@@ -95,12 +96,14 @@ export function apply(room: Room, c: Command, now = Date.now()): Room {
         const p = r.players.find(p => p.id === c.playerId);
         check(p, '参与者不存在');
         check(p.balance === 0, '只有积分归零后才能补分');
-        integer(p.refillTotal + r.initial, 0, 1000000000, '累计补分');
+        // Older clients omit amount and retain their initial-score refill behavior.
+        const amount = integer(c.amount === undefined ? r.initial : c.amount, 1, 1000000000, '补分数量');
+        integer(p.refillTotal + amount, 0, 1000000000, '累计补分');
         e.before = [{ ...p }];
-        e.text = `${p.name} 补分 +${r.initial}`;
-        p.balance = r.initial;
+        e.text = `${p.name} 补分 +${amount}`;
+        p.balance = amount;
         p.refills++;
-        p.refillTotal += r.initial;
+        p.refillTotal += amount;
     }
     else if (c.action === 'undo') {
         const target = r.events.slice().reverse().find(e => ['score', 'refill'].includes(e.type) && !e.undone);
